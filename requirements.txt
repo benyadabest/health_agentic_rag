@@ -4,3 +4,7 @@ crewai
 chromadb
 pysqlite3-binary
 crewai[tools]
+tavily-python
+spider-client
+firecrawl-py
+exa_py
