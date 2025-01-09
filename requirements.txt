@@ -2,4 +2,3 @@ anthropic
 streamlit 
 openai
 crewai
-crewai_tools
