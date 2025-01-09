@@ -1,5 +1,4 @@
 anthropic
 openai
 crewai
-'crewai[tools]'
 pysqlite3-binary
