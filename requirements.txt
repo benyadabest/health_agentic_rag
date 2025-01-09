@@ -1,5 +1,5 @@
 anthropic
 streamlit 
 openai
-crewai = "^0.95.0"
+crewai
 crewai-tools
