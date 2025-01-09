@@ -3,3 +3,4 @@ openai
 crewai
 chromadb
 pysqlite3-binary
+crewai-tools
