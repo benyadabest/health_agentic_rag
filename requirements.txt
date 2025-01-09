@@ -1,4 +1,5 @@
 anthropic
-streamlit 
 openai
 crewai
+'crewai[tools]'
+pysqlite3-binary
