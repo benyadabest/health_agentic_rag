@@ -218,7 +218,8 @@ def get_recent_qa_pairs(max_pairs=3):
     return qa_pairs
 
 def handle_meta_query(query: str) -> str:
-    # Persistent system context
+
+    meta_llm = LLM(model="gpt-4o", temperature=0.4)
     system_prompt = """
     You are a specialized medical assistant. You handle meta-queries by explaining:
     - Your purpose: to assist with health-related questions, document summaries, and personalized insights.
@@ -227,7 +228,7 @@ def handle_meta_query(query: str) -> str:
     """
     prompt = f"{system_prompt}\n\nUser query: {query}\n\nResponse:"
     
-    response = LLM(model="gpt-4o", temperature=0)(prompt)
+    response = meta_llm(prompt)
     return response
 
 def create_crew_tasks(query, agents, qa_pairs=None):
