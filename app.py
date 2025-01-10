@@ -228,7 +228,7 @@ def handle_meta_query(query: str) -> str:
     """
     prompt = f"{system_prompt}\n\nUser query: {query}\n\nResponse:"
     
-    response = meta_llm(prompt)
+    response = meta_llm.generate(prompt)
     return response
 
 def create_crew_tasks(query, agents, qa_pairs=None):
