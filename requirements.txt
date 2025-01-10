@@ -8,3 +8,4 @@ tavily-python
 spider-client
 firecrawl-py
 exa_py
+PyPDF2
