@@ -18,7 +18,7 @@ from enum import Enum
 from PyPDF2 import PdfReader
 from pathlib import Path
 from exa_py import Exa
-from crewai_tools import tool
+from crewai.tools import tool
 
 load_dotenv()
 
