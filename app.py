@@ -520,7 +520,7 @@ def main():
                         response = handle_follow_up(prompt, recent_qa[0]["answer"])
                     
                     elif query_type == QueryType.META:
-                        return handle_meta_query(prompt)
+                        response = handle_meta_query(prompt)
                     else:
                         response = "I'm specifically designed to help with medical and health-related questions. Could you please ask a health-related question or rephrase your query to focus on medical aspects?"
                     
