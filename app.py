@@ -26,6 +26,7 @@ st.set_page_config(
     page_title="Medical Crew Chat",
     page_icon="🏥"
 )
+st.title("Medical Crew Chat :mostly_sunny::hospital:")
 
 class TavilySearchInput(BaseModel):
     query: Annotated[str, Field(description="The search query string")]
@@ -216,6 +217,19 @@ def get_recent_qa_pairs(max_pairs=3):
     
     return qa_pairs
 
+def handle_meta_query(query: str) -> str:
+    # Persistent system context
+    system_prompt = """
+    You are a specialized medical assistant. You handle meta-queries by explaining:
+    - Your purpose: to assist with health-related questions, document summaries, and personalized insights.
+    - Your strengths: trusted medical sources, Reddit integration, and document analysis.
+    - How you differ from general-purpose AIs like ChatGPT.
+    """
+    prompt = f"{system_prompt}\n\nUser query: {query}\n\nResponse:"
+    
+    response = LLM(model="gpt-4o", temperature=0)(prompt)
+    return response
+
 def create_crew_tasks(query, agents, qa_pairs=None):
     health_agent, search_agent, community_agent, synthesis_agent = agents
     
@@ -282,7 +296,7 @@ def create_crew_tasks(query, agents, qa_pairs=None):
 
     synthesis_desc += (
         "\nRequirements:\n"
-        "Reddit Search Results are included, your response should include primarily this content\n"
+        "If reddit Search Results are included, your response should include primarily this content\n"
         "- List ALL included sources at the end\n"
         "- Include a brief medical disclaimer\n"
         "- Keep the response clear and well-structured"
@@ -300,7 +314,8 @@ def create_crew_tasks(query, agents, qa_pairs=None):
 class QueryType(Enum):
     MEDICAL = 1
     FOLLOWUP = 2
-    IRRELEVANT = 3
+    META = 3
+    IRRELEVANT = 4
 
 def classify_query(query: str) -> QueryType:
     classifier_agent = Agent(
@@ -331,12 +346,16 @@ def classify_query(query: str) -> QueryType:
             - Asks for simpler/more detailed/more concise version
             - References previous response
             - Asks for elaboration on topic just discussed
+
+        3 - If it's a meta-query about the assistant:
+            - Asks about the assistant’s capabilities, purpose, or comparison to other AI systems
+            - Examples include: "What can you do?", "Why are you better than ChatGPT?", "Who are you?"
             
-        3 - If it's irrelevant (not medical AND not follow-up)
+        4 - If it's irrelevant (not medical AND not follow-up)
         
-        Only respond with the number: 1, 2, or 3
+        Only respond with the number: 1, 2, 3, or 4
         """,
-        expected_output="Classification number (1, 2, or 3)",
+        expected_output="Classification number (1, 2, 3, 4)",
         agent=classifier_agent
     )
     
@@ -467,7 +486,9 @@ def main():
                     
                     elif query_type == QueryType.FOLLOWUP and recent_qa:
                         response = handle_follow_up(prompt, recent_qa[0]["answer"])
-                        
+                    
+                    elif query_type == QueryType.META:
+                        return handle_meta_query(prompt)
                     else:
                         response = "I'm specifically designed to help with medical and health-related questions. Could you please ask a health-related question or rephrase your query to focus on medical aspects?"
                     
