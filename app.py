@@ -13,7 +13,7 @@ import os
 from tavily import TavilyClient
 from pydantic import BaseModel, Field
 from typing import Annotated, Optional, Any, Type
-from crewai_tools import BaseTool
+from crewai.tools import BaseTool
 from enum import Enum
 from PyPDF2 import PdfReader
 from pathlib import Path
