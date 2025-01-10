@@ -6,7 +6,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 import streamlit as st
-from crewai import Agent, Task, Crew, LLM
+from crewai import Agent, Task, Crew, LLM, Knowledge
 from crewai_tools import TXTSearchTool
 from dotenv import load_dotenv
 import os
@@ -19,6 +19,7 @@ from PyPDF2 import PdfReader
 from pathlib import Path
 from exa_py import Exa
 from crewai.tools import tool
+from crewai.knowledge.source.string_knowledge_source import StringKnowledgeSource
 
 load_dotenv()
 
@@ -140,11 +141,16 @@ def init_llm():
     return LLM("groq/llama-3.1-8b-instant", temperature=0)
 
 @st.cache_resource
+def init_llm2():
+    return LLM(model="gpt-4o", temperature=0)
+
+@st.cache_resource
 def init_agents():
     txt_tool = load_text_tool()
     reddit_tool = load_reddit_tool()
     tavily_tool = load_tavily_tool()
     llm = init_llm()
+    llm2 = init_llm2()
     
     health_agent = Agent(
         role="Smart Health Context Analyzer",
@@ -156,7 +162,7 @@ def init_agents():
             "to determine if any relevant information exists for the query. "
             "However, only do so if the query is user-specific (e.g., contains 'my condition,' 'for me')"
         ),
-        llm=LLM(model="gpt-4o", temperature=0),
+        llm=llm2,
     )
 
     search_agent = Agent(
@@ -180,7 +186,7 @@ def init_agents():
         backstory=(
             "You are skilled at finding reliable medical information from Reddit.com, ONLY search this domain"
         ),
-        llm=LLM(model="gpt-4o", temperature=0),
+        llm=llm2,
     )
 
     synthesis_agent = Agent(
@@ -192,7 +198,7 @@ def init_agents():
             "You synthesize data from multiple sources to create clear and concise answers for the user."
             "When given previous conversation context, you incorporate it intelligently into your responses if needed."
         ),
-        llm=LLM(model="gpt-4o", temperature=0),
+        llm=llm2,
     )
     
     return health_agent, search_agent, community_agent, synthesis_agent
@@ -217,19 +223,7 @@ def get_recent_qa_pairs(max_pairs=3):
     
     return qa_pairs
 
-def handle_meta_query(query: str) -> str:
 
-    meta_llm = LLM(model="gpt-4o", temperature=0.4)
-    system_prompt = """
-    You are a specialized medical assistant. You handle meta-queries by explaining:
-    - Your purpose: to assist with health-related questions, document summaries, and personalized insights.
-    - Your strengths: trusted medical sources, Reddit integration, and document analysis.
-    - How you differ from general-purpose AIs like ChatGPT.
-    """
-    prompt = f"{system_prompt}\n\nUser query: {query}\n\nResponse:"
-    
-    response = meta_llm.generate(prompt)
-    return response
 
 def create_crew_tasks(query, agents, qa_pairs=None):
     health_agent, search_agent, community_agent, synthesis_agent = agents
@@ -451,6 +445,38 @@ def handle_pdf_upload():
             return True
             
     return False
+
+def handle_meta_query(query: str) -> str:
+    content="""
+        I am a specialized medical chat that generates responses from multiple specialized agents. My purpose is to:
+        - Assist with health-related questions, document summaries, and personalized insights.
+        - Use only trusted sources and patient-friendly formats.
+        - Provide insights from real-world communities like Reddit.
+        - Analyze user-uploaded documents and extract summaries and key topics.
+        - Offer a more targeted approach than general-purpose models like ChatGPT.
+        - Unlike ChatGPT, due to modular architecture, be able to handle document upload and real-time web retrieval simultaneously.
+        """
+    
+    string_source = StringKnowledgeSource(
+        content=content,
+    )
+    meta_agent = Agent(
+        role="Meta Query Responder",
+        goal="Respond to queries about the chat's purpose, capabilities, and strengths.",
+        verbose=True,
+        llm=LLM(model="gpt-4o", temperature=0),
+        knowledge_sources=[string_source]
+    )
+
+    task = Task(
+        description=f"Respond to the meta-query: '{query}' using the knowledge source.",
+        expected_output="A detailed explanation of the crew/chat's purpose, strengths, and differentiators.",
+        agent=meta_agent
+    )
+
+    crew = Crew(agents=[meta_agent], tasks=[task], verbose=True, knowledge_sources=[string_source])
+    result = crew.kickoff()
+    return result
 
 def main():
     if "messages" not in st.session_state:

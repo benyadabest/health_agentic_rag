@@ -1,4 +1,5 @@
 # CrewAI Medical Agentic RAG
+[Medical Crew Chat Link :sunrise_over_mountains::hospital:](medical-crew-chat.streamlit.app)
 
 ## Description
 
@@ -20,7 +21,7 @@ Adding Soon:
         2. CommunityInsight Agent fetches and processes relevant Reddit threads to capture real-world experiences
         3. Health Agent captures user's personal health documents as context
         4. Synthesis Agent synthesizes data from multiple sources to create clear and concise answers for the user
-        5. Classifier Agent determines whether user's query is medical related, follow-up, or unrelated
+        5. Classifier Agent determines whether user's query is medical related, follow-up, meta, or unrelated
         6. Response Modifier Agent handles follow-up requests and questions using prev. responses
 - Patient-friendly summarization 
 - Multi-source aggregation, basic short-term contextual memory, and health document(s) upload
