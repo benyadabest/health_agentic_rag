@@ -463,6 +463,11 @@ def handle_meta_query(query: str) -> str:
     meta_agent = Agent(
         role="Meta Query Responder",
         goal="Respond to queries about the chat's purpose, capabilities, and strengths.",
+        backstory=(
+            "You are a Meta Query Responder, designed to answer questions about the chat's purpose, "
+            "capabilities, and how it differs from general-purpose AIs like ChatGPT. Your responses should "
+            "be clear, concise, and user-friendly, incorporating knowledge about the assistant."
+        ),
         verbose=True,
         llm=LLM(model="gpt-4o", temperature=0),
         knowledge_sources=[string_source]
