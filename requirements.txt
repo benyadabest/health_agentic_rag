@@ -9,6 +9,5 @@ spider-client
 firecrawl-py
 exa_py
 PyPDF2
-base64
 json
 pathlib
