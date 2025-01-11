@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from typing import Annotated, Optional, Any, Type
 from crewai.tools import BaseTool
 from enum import Enum
+import json
 from PyPDF2 import PdfReader
 from pathlib import Path
 from exa_py import Exa
@@ -225,16 +226,36 @@ def get_recent_qa_pairs(max_pairs=3):
 
 
 
-def create_crew_tasks(query, agents, qa_pairs=None):
+def create_crew_tasks(query, agents, qa_pairs=None, doc_context=None):
     health_agent, search_agent, community_agent, synthesis_agent = agents
     
+    use_doc = False
+    if isinstance(query, dict):
+        topic = query["topic"]
+        doc_context = query["content"]
+        search_query = f"medical information about {topic}"
+        use_doc = True
+    else:
+        topic = query
+        search_query = query
+
+    print(str(use_doc))
+
+    if doc_context:
+        txt_tool2 = TXTSearchTool(txt=doc_context)
+        health_agent.tools = [txt_tool2]
+
     health_context_task = Task(
         description=(
-            f"Check if the query {query} EXPLICITLY references the user's health "
-            "(e.g., contains 'my condition,' 'for me') "
-            "If NO, then return '' and ignore the rest of task. If YES, proceed to the following steps: "
-            "Using the tool, Provide relevant medical context to help answer the query "
-            "Ensure there's no hallucination and include citations for each piece of information"
+            f"Using the tool, analyze the following:"
+            f"\nQuery/Topic: {topic}"
+            f"\nIs this from a document? {use_doc}"
+            "\nInstructions:"
+            f"\n1. If from document (use_doc=True): Provide relevant medical context about {topic} from the document"
+            "\n2. If not from document: Check if query references user's health (e.g., 'my condition,' 'for me')"
+            "\n   - If NO, return ''"
+            "\n   - If YES, provide relevant medical context"
+            "\nEnsure there's no hallucination and include citations for each piece of information"
         ),
         expected_output="A structured health context report.",
         agent=health_agent,
@@ -243,11 +264,11 @@ def create_crew_tasks(query, agents, qa_pairs=None):
 
     search_task = Task(
         description=(
-            f"Search websites for information about: {query}\n"
+            f"Search websites for information about: {search_query}\n"
             "Use the tool to retrieve information from the web "
             "Your task: "
             "1. Prefix the query with: (site:.gov OR site:.edu OR site:.org) and Search\n"
-            "3. Return your results"
+            "3. Return your results with clear citations"
         ),
         expected_output="Content from medical sources with clear citations.",
         agent=search_agent,
@@ -267,32 +288,14 @@ def create_crew_tasks(query, agents, qa_pairs=None):
     )
 
     synthesis_desc = (
-        f"Create a comprehensive answer for: {query}\n"
+        f"Create a comprehensive, patient-friendly answer for: {query}\n"
         "Using:\n"
         "- Health Context (if available)\n"
         "- Web Search Results (if applicable)\n"
         "- Reddit Search Results (if available)\n"
-    )
-    
-    ##created by claude.ai
-    if qa_pairs:
-        synthesis_desc += "\nPrevious Conversation Context (Most Recent First):\n"
-        for i, qa in enumerate(qa_pairs, 1):
-            synthesis_desc += (
-                f"\nQ{i}: {qa['question']}\n"
-                f"A{i}: {qa['answer']}\n"
-            )
-        
-        synthesis_desc += (
-            "\nUse this previous context when relevant to the current query. "
-            "If the current query references or relates to previous answers, "
-            "incorporate that information appropriately."
-        )
-
-    synthesis_desc += (
         "\nRequirements:\n"
-        "If reddit Search Results are included, your response should include primarily this content\n"
-        "- List ALL included sources at the end\n"
+        "- If reddit Search Results are included, your response should include primarily this content\n"
+        "- ALWAYS List ALL included sources at the end\n"
         "- Include a brief medical disclaimer\n"
         "- Keep the response clear and well-structured"
     )
@@ -345,6 +348,8 @@ def classify_query(query: str) -> QueryType:
         3 - If it's a meta-query about the assistant:
             - Asks about the assistant’s capabilities, purpose, or comparison to other AI systems
             - Examples include: "What can you do?", "Why are you better than ChatGPT?", "Who are you?"
+            - States a friendly greeting, compliment, or thank you
+            - Examples include: "hi", "hello", "what's up", "thank you"
             
         4 - If it's irrelevant (not medical AND not follow-up)
         
@@ -405,11 +410,136 @@ def handle_follow_up(query: str, previous_response: str) -> str:
     
     return crew.kickoff()
 
-def handle_pdf_upload():
+def analyze_document(text, file_name):
+    """
+    Analyze medical document using CrewAI to extract summary and key topics
+    """
+    from crewai import Agent, Task, Crew, LLM
+    
+    llm = LLM(model="gpt-4o", temperature=0)
+    
+    summarizer_agent = Agent(
+        role="Medical Document Summarizer",
+        goal="Create concise, accurate summaries of medical documents",
+        backstory="""Expert at distilling complex medical documents into clear, 
+        actionable summaries while preserving key medical information""",
+        llm=llm
+    )
+    
+    topic_agent = Agent(
+        role="Medical Topic Extractor",
+        goal="Identify key medical topics and themes from documents",
+        backstory="""Specialist in identifying and categorizing medical topics, 
+        conditions, treatments, and themes from healthcare documents""",
+        llm=llm
+    )
+    
+    summary_task = Task(
+        description=f"""
+        Create a concise summary of this medical document.
+        Requirements:
+        - 1-2 paragraphs maximum
+        - Focus on main medical findings/information
+        - Preserve any critical health data
+        - Use clear, patient-friendly language
+        
+        Document text:
+        {text}
+        
+        Return ONLY the summary text, no additional formatting or explanations.
+        """,
+        expected_output="A clear, concise medical document summary in 1-2 paragraphs.",
+        agent=summarizer_agent
+    )
+    
+    topics_task = Task(
+        description=f"""
+        Extract 4-7 key medical topics from this document.
+        Requirements:
+        - Focus on significant medical themes
+        - Include conditions, treatments, or procedures mentioned
+        - Identify any recurring medical concepts
+        - Make topics specific enough to be meaningful
+        - Format each topic as a clear phrase (2-5 words)
+        
+        Document text:
+        {text}
+        
+        Return ONLY the list of topics, one per line, no numbering or bullets.
+        """,
+        expected_output="A list of 4-7 key medical topics from the document.",
+        agent=topic_agent
+    )
+    
+    summary_crew = Crew(
+        agents=[summarizer_agent],
+        tasks=[summary_task],
+        verbose=True
+    )
+    
+    topics_crew = Crew(
+        agents=[topic_agent],
+        tasks=[topics_task],
+        verbose=True
+    )
+    
+    try:
+        summary_result = summary_crew.kickoff()
+        summary = str(summary_result).strip()
+        
+        topics_result = topics_crew.kickoff()
+        topics = [topic.strip() for topic in str(topics_result).strip().split('\n') 
+                 if topic.strip()]
+        
+        analysis = {
+            "summary": summary,
+            "topics": topics,
+            "file_name": file_name,
+            "file_path": str(Path("documents") / file_name)
+        }
+        
+        return analysis
+        
+    except Exception as e:
+        st.error(f"Error processing document analysis: {str(e)}")
+        return None
+
+def save_document_analysis(file_name: str, analysis: dict):
+    docs_dir = Path("documents")
+    docs_dir.mkdir(exist_ok=True)
+    
+    summaries_path = docs_dir / "summaries.json"
+    
+    if summaries_path.exists():
+        with open(summaries_path, "r") as f:
+            summaries = json.load(f)
+    else:
+        summaries = {}
+    
+    summaries[file_name] = analysis
+    
+    with open(summaries_path, "w") as f:
+        json.dump(summaries, f, indent=2)
+
+def get_document_context(doc_name=None):
+    if doc_name:
+        summaries_path = Path("documents/summaries.json")
+        if summaries_path.exists():
+            with open(summaries_path, "r", encoding='utf-8') as f:
+                summaries = json.load(f)
+                if doc_name in summaries:
+                    text_path = Path(summaries[doc_name]["file_path"])
+                    if text_path.exists():
+                        with open(text_path, "r", encoding='utf-8') as f:
+                            return f.read()
+    return st.session_state.document_content
+
+def handle_document_upload():
+    """Handle document upload and analysis"""
     with st.sidebar:
         st.header("📄 Document Upload")
         uploaded_files = st.file_uploader(
-            "Drag and drop medical documents",
+            "Upload medical documents",
             type=['pdf'],
             accept_multiple_files=True,
             help="Upload PDF files to include in the context"
@@ -418,32 +548,60 @@ def handle_pdf_upload():
         if uploaded_files:
             st.success(f"✅ {len(uploaded_files)} file(s) uploaded")
             
-            with st.expander("View Uploaded Files"):
-                for file in uploaded_files:
-                    st.write(f"📎 {file.name}")
+            docs_dir = Path("documents")
+            docs_dir.mkdir(exist_ok=True)
             
-            # Process files
+            summaries_path = docs_dir / "summaries.json"
+            
+            try:
+                if summaries_path.exists():
+                    with open(summaries_path, "r") as f:
+                        content = f.read()
+                        if content.strip():  # Check if file is not empty
+                            summaries = json.loads(content)
+                        else:
+                            summaries = {}
+                else:
+                    summaries = {}
+            except json.JSONDecodeError:
+                summaries = {}
+            
             all_text = []
             for file in uploaded_files:
+                file_path = docs_dir / file.name
+                with open(file_path, "wb") as f:
+                    f.write(file.getvalue())
+                
                 reader = PdfReader(file)
                 text = ""
                 for page in reader.pages:
                     text += page.extract_text()
+                
+                with st.spinner(f"Analyzing {file.name}..."):
+                    analysis = analyze_document(text, file.name)
+                    if analysis:
+                        summaries[file.name] = analysis
+                        st.success(f"✅ {file.name} analyzed")
+                
                 all_text.append(text)
             
-            combined_text = "\n\n".join(all_text)
-            with open("health_data.txt", "w", encoding="utf-8") as f:
-                f.write(combined_text)
+            with open(summaries_path, "w") as f:
+                json.dump(summaries, f, indent=2)
             
+            combined_text = "\n\n".join(all_text)
             st.session_state.document_content = combined_text
+            
             st.cache_resource.clear()
             
-            if st.checkbox("Show extracted text"):
-                st.text_area("Content", combined_text, height=300)
+            with st.expander("View Analyzed Files"):
+                for file_name, data in summaries.items():
+                    st.write(f"📄 {file_name}")
+                    if st.checkbox(f"Show summary for {file_name}"):
+                        st.write(data["summary"])
+                        st.write("Key Topics:")
+                        st.write(", ".join(data["topics"]))
             
-            st.success("✅ Content saved to health_data.txt")
             return True
-            
     return False
 
 def handle_meta_query(query: str) -> str:
@@ -462,11 +620,12 @@ def handle_meta_query(query: str) -> str:
     )
     meta_agent = Agent(
         role="Meta Query Responder",
-        goal="Respond to queries about the chat's purpose, capabilities, and strengths.",
+        goal="Respond to greetings and queries about the chat's purpose, capabilities, and strengths. ",
         backstory=(
             "You are a Meta Query Responder, designed to answer questions about the chat's purpose, "
             "capabilities, and how it differs from general-purpose AIs like ChatGPT. Your responses should "
             "be clear, concise, and user-friendly, incorporating knowledge about the assistant."
+            "You also are responsible for being friendly and responding to greetings, compliments, thank yous."
         ),
         verbose=True,
         llm=LLM(model="gpt-4o", temperature=0),
@@ -475,7 +634,7 @@ def handle_meta_query(query: str) -> str:
 
     task = Task(
         description=f"Respond to the meta-query: '{query}' using the knowledge source.",
-        expected_output="A detailed explanation of the crew/chat's purpose, strengths, and differentiators.",
+        expected_output="A detailed explanation of the crew/chat's purpose, strengths, and differentiators. Or simple friendly response back",
         agent=meta_agent
     )
 
@@ -490,18 +649,36 @@ def main():
         ]
     if "document_content" not in st.session_state:
         st.session_state.document_content = ""
-    
-    has_uploads = handle_pdf_upload()
+        
+    has_uploads = handle_document_upload()
     
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
     
     agents = init_agents()
-    llm = init_llm()
     
-    if prompt := st.chat_input(
-        "What would you like to know?"):
+    if "doc_query" in st.session_state:
+        query_data = st.session_state.pop("doc_query")
+        display_query = f"Discussion of '{query_data['topic']}' from document: {query_data['doc_name']}"
+        
+        st.session_state.messages.append({"role": "user", "content": display_query})
+        with st.chat_message("user"):
+            st.markdown(display_query)
+            
+        with st.chat_message("assistant"):
+            with st.spinner("Processing your request..."):
+                try:
+                    qa_pairs = get_recent_qa_pairs(max_pairs=3)
+                    response = process_query(query_data, agents, qa_pairs)  # Pass the entire query_data
+                    st.markdown(response)
+                    st.session_state.messages.append({"role": "assistant", "content": response})
+                except Exception as e:
+                    error_message = f"I apologize, but I encountered an error: {str(e)}"
+                    st.error(error_message)
+                    st.session_state.messages.append({"role": "assistant", "content": error_message})
+    
+    if prompt := st.chat_input("What would you like to know?"):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
