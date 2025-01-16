@@ -1,6 +1,6 @@
-# __import__('pysqlite3')
-# import sys
-# sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+__import__('pysqlite3')
+import sys
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -410,100 +410,6 @@ def handle_follow_up(query: str, previous_response: str) -> str:
     
     return crew.kickoff()
 
-def analyze_document(text, file_name):
-    """
-    Analyze medical document using CrewAI to extract summary and key topics
-    """
-    from crewai import Agent, Task, Crew, LLM
-    
-    llm = LLM(model="gpt-4o", temperature=0)
-    
-    summarizer_agent = Agent(
-        role="Medical Document Summarizer",
-        goal="Create concise, accurate summaries of medical documents",
-        backstory="""Expert at distilling complex medical documents into clear, 
-        actionable summaries while preserving key medical information""",
-        llm=llm
-    )
-    
-    topic_agent = Agent(
-        role="Medical Topic Extractor",
-        goal="Identify key medical topics and themes from documents",
-        backstory="""Specialist in identifying and categorizing medical topics, 
-        conditions, treatments, and themes from healthcare documents""",
-        llm=llm
-    )
-    
-    summary_task = Task(
-        description=f"""
-        Create a concise summary of this medical document.
-        Requirements:
-        - 1-2 paragraphs maximum
-        - Focus on main medical findings/information
-        - Preserve any critical health data
-        - Use clear, patient-friendly language
-        
-        Document text:
-        {text}
-        
-        Return ONLY the summary text, no additional formatting or explanations.
-        """,
-        expected_output="A clear, concise medical document summary in 1-2 paragraphs.",
-        agent=summarizer_agent
-    )
-    
-    topics_task = Task(
-        description=f"""
-        Extract 4-7 key medical topics from this document.
-        Requirements:
-        - Focus on significant medical themes
-        - Include conditions, treatments, or procedures mentioned
-        - Identify any recurring medical concepts
-        - Make topics specific enough to be meaningful
-        - Format each topic as a clear phrase (2-5 words)
-        
-        Document text:
-        {text}
-        
-        Return ONLY the list of topics, one per line, no numbering or bullets.
-        """,
-        expected_output="A list of 4-7 key medical topics from the document.",
-        agent=topic_agent
-    )
-    
-    summary_crew = Crew(
-        agents=[summarizer_agent],
-        tasks=[summary_task],
-        verbose=True
-    )
-    
-    topics_crew = Crew(
-        agents=[topic_agent],
-        tasks=[topics_task],
-        verbose=True
-    )
-    
-    try:
-        summary_result = summary_crew.kickoff()
-        summary = str(summary_result).strip()
-        
-        topics_result = topics_crew.kickoff()
-        topics = [topic.strip() for topic in str(topics_result).strip().split('\n') 
-                 if topic.strip()]
-        
-        analysis = {
-            "summary": summary,
-            "topics": topics,
-            "file_name": file_name,
-            "file_path": str(Path("documents") / file_name)
-        }
-        
-        return analysis
-        
-    except Exception as e:
-        st.error(f"Error processing document analysis: {str(e)}")
-        return None
-
 def save_document_analysis(file_name: str, analysis: dict):
     docs_dir = Path("documents")
     docs_dir.mkdir(exist_ok=True)
@@ -568,13 +474,12 @@ def handle_document_upload():
             
             all_text = []
             for file in uploaded_files:
-                # Skip if file already processed
                 if file.name in st.session_state.uploaded_files:
                     continue
                     
-                text = ""
                 try:
                     reader = PdfReader(file)
+                    text = ""
                     for page in reader.pages:
                         text += page.extract_text()
                     
@@ -588,19 +493,15 @@ def handle_document_upload():
                                 "file_name": file.name
                             }
                             st.success(f"✅ {file.name} analyzed")
-                    
-                    all_text.append(text)
+                            all_text.append(text)
                 except Exception as e:
                     st.error(f"Error processing {file.name}: {str(e)}")
                     continue
             
             if all_text:
-                st.session_state.document_content = "\n\n".join(
-                    [data["content"] for data in st.session_state.uploaded_files.values()]
-                )
+                st.session_state.document_content = "\n\n".join(all_text)
             
             st.session_state.processing_complete = True
-            st.cache_resource.clear()
             st.rerun()
             
         if not uploaded_files:
@@ -612,6 +513,90 @@ def get_document_context(doc_name=None):
     if doc_name and doc_name in st.session_state.uploaded_files:
         return st.session_state.uploaded_files[doc_name]["content"]
     return st.session_state.document_content
+
+def analyze_document(text, file_name):
+    llm = LLM(model="gpt-4o", temperature=0)
+    
+    summarizer_agent = Agent(
+        role="Medical Document Summarizer",
+        goal="Create concise, accurate summaries of medical documents",
+        backstory="Expert at distilling complex medical documents into clear, actionable summaries while preserving key medical information",
+        llm=llm
+    )
+    
+    topic_agent = Agent(
+        role="Medical Topic Extractor",
+        goal="Identify key medical topics and themes from documents",
+        backstory="Specialist in identifying and categorizing medical topics, conditions, treatments, and themes from healthcare documents",
+        llm=llm
+    )
+    
+    summary_task = Task(
+        description=f"""
+        Create a concise summary of this medical document.
+        Requirements:
+        - 1-2 paragraphs maximum
+        - Focus on main medical findings/information
+        - Preserve any critical health data
+        - Use clear, patient-friendly language
+        
+        Document text:
+        {text}
+        
+        Return ONLY the summary text, no additional formatting or explanations.
+        """,
+        expected_output="A clear, concise medical document summary in 1-2 paragraphs.",
+        agent=summarizer_agent
+    )
+    
+    topics_task = Task(
+        description=f"""
+        Extract 4-7 key medical topics from this document.
+        Requirements:
+        - Focus on significant medical themes
+        - Include conditions, treatments, or procedures mentioned
+        - Identify any recurring medical concepts
+        - Make topics specific enough to be meaningful
+        - Format each topic as a clear phrase (2-5 words)
+        
+        Document text:
+        {text}
+        
+        Return ONLY the list of topics, one per line, no numbering or bullets.
+        """,
+        expected_output="A list of 4-7 key medical topics from the document.",
+        agent=topic_agent
+    )
+    
+    summary_crew = Crew(
+        agents=[summarizer_agent],
+        tasks=[summary_task],
+        verbose=True
+    )
+    
+    topics_crew = Crew(
+        agents=[topic_agent],
+        tasks=[topics_task],
+        verbose=True
+    )
+    
+    try:
+        summary_result = summary_crew.kickoff()
+        summary = str(summary_result).strip()
+        
+        topics_result = topics_crew.kickoff()
+        topics = [topic.strip() for topic in str(topics_result).strip().split('\n') 
+                 if topic.strip()]
+        
+        return {
+            "summary": summary,
+            "topics": topics,
+            "file_name": file_name
+        }
+        
+    except Exception as e:
+        st.error(f"Error processing document analysis: {str(e)}")
+        return None
 
 def handle_meta_query(query: str) -> str:
     content="""
