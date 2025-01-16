@@ -1,6 +1,6 @@
-__import__('pysqlite3')
-import sys
-sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+# __import__('pysqlite3')
+# import sys
+# sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -521,23 +521,19 @@ def save_document_analysis(file_name: str, analysis: dict):
     with open(summaries_path, "w") as f:
         json.dump(summaries, f, indent=2)
 
-def get_document_context(doc_name=None):
-    if doc_name:
-        summaries_path = Path("documents/summaries.json")
-        if summaries_path.exists():
-            with open(summaries_path, "r", encoding='utf-8') as f:
-                summaries = json.load(f)
-                if doc_name in summaries:
-                    text_path = Path(summaries[doc_name]["file_path"])
-                    if text_path.exists():
-                        with open(text_path, "r", encoding='utf-8') as f:
-                            return f.read()
-    return st.session_state.document_content
-
 def handle_document_upload():
-    """Handle document upload and analysis"""
     with st.sidebar:
         st.header("📄 Document Upload")
+        
+        if "uploaded_files" not in st.session_state:
+            st.session_state.uploaded_files = {}
+            
+        if "document_content" not in st.session_state:
+            st.session_state.document_content = ""
+            
+        if "processing_complete" not in st.session_state:
+            st.session_state.processing_complete = False
+            
         uploaded_files = st.file_uploader(
             "Upload medical documents",
             type=['pdf'],
@@ -545,64 +541,77 @@ def handle_document_upload():
             help="Upload PDF files to include in the context"
         )
         
-        if uploaded_files:
+        st.subheader("📋 Files Dashboard")
+        dashboard = st.container()
+        
+        with dashboard:
+            if st.session_state.uploaded_files:
+                for file_name, data in st.session_state.uploaded_files.items():
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        if st.button(f"📄 {file_name}", key=f"file_{file_name}"):
+                            if st.checkbox(f"Show summary for {file_name}", key=f"show_{file_name}"):
+                                st.write(data["summary"])
+                                st.write("Key Topics:")
+                                st.write(", ".join(data["topics"]))
+                    with col2:
+                        if st.button("❌", key=f"delete_{file_name}"):
+                            del st.session_state.uploaded_files[file_name]
+                            if not st.session_state.uploaded_files:
+                                st.session_state.document_content = ""
+                            st.rerun()
+            else:
+                st.info("No files uploaded yet")
+        
+        if uploaded_files and not st.session_state.processing_complete:
             st.success(f"✅ {len(uploaded_files)} file(s) uploaded")
-            
-            docs_dir = Path("documents")
-            docs_dir.mkdir(exist_ok=True)
-            
-            summaries_path = docs_dir / "summaries.json"
-            
-            try:
-                if summaries_path.exists():
-                    with open(summaries_path, "r") as f:
-                        content = f.read()
-                        if content.strip():  # Check if file is not empty
-                            summaries = json.loads(content)
-                        else:
-                            summaries = {}
-                else:
-                    summaries = {}
-            except json.JSONDecodeError:
-                summaries = {}
             
             all_text = []
             for file in uploaded_files:
-                file_path = docs_dir / file.name
-                with open(file_path, "wb") as f:
-                    f.write(file.getvalue())
-                
-                reader = PdfReader(file)
+                # Skip if file already processed
+                if file.name in st.session_state.uploaded_files:
+                    continue
+                    
                 text = ""
-                for page in reader.pages:
-                    text += page.extract_text()
-                
-                with st.spinner(f"Analyzing {file.name}..."):
-                    analysis = analyze_document(text, file.name)
-                    if analysis:
-                        summaries[file.name] = analysis
-                        st.success(f"✅ {file.name} analyzed")
-                
-                all_text.append(text)
+                try:
+                    reader = PdfReader(file)
+                    for page in reader.pages:
+                        text += page.extract_text()
+                    
+                    with st.spinner(f"Analyzing {file.name}..."):
+                        analysis = analyze_document(text, file.name)
+                        if analysis:
+                            st.session_state.uploaded_files[file.name] = {
+                                "summary": analysis["summary"],
+                                "topics": analysis["topics"],
+                                "content": text,
+                                "file_name": file.name
+                            }
+                            st.success(f"✅ {file.name} analyzed")
+                    
+                    all_text.append(text)
+                except Exception as e:
+                    st.error(f"Error processing {file.name}: {str(e)}")
+                    continue
             
-            with open(summaries_path, "w") as f:
-                json.dump(summaries, f, indent=2)
+            if all_text:
+                st.session_state.document_content = "\n\n".join(
+                    [data["content"] for data in st.session_state.uploaded_files.values()]
+                )
             
-            combined_text = "\n\n".join(all_text)
-            st.session_state.document_content = combined_text
-            
+            st.session_state.processing_complete = True
             st.cache_resource.clear()
+            st.rerun()
             
-            with st.expander("View Analyzed Files"):
-                for file_name, data in summaries.items():
-                    st.write(f"📄 {file_name}")
-                    if st.checkbox(f"Show summary for {file_name}"):
-                        st.write(data["summary"])
-                        st.write("Key Topics:")
-                        st.write(", ".join(data["topics"]))
-            
-            return True
-    return False
+        if not uploaded_files:
+            st.session_state.processing_complete = False
+        
+        return bool(st.session_state.uploaded_files)
+
+def get_document_context(doc_name=None):
+    if doc_name and doc_name in st.session_state.uploaded_files:
+        return st.session_state.uploaded_files[doc_name]["content"]
+    return st.session_state.document_content
 
 def handle_meta_query(query: str) -> str:
     content="""
