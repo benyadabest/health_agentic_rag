@@ -14,10 +14,6 @@ This project focuses on creating a **real-time, agentic retrieval-augmented gene
     - Topic-specific document discussions
     - Document preview and management
 
-Adding Soon:
-- Brain cancer research (PubMed API)
-- Clinical trials. (ClinicalTrials.gov API)
-
 ## Specs
 - Real-time retrieval of live data from sources using Tavily
 - **NotebookLM-style source (document) features** with topic-specific contextual retrieval and summarization
